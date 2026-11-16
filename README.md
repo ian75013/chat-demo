@@ -53,7 +53,29 @@ Settings → Data → Delete all chats clears all local conversations, original 
 | `pnpm lint`   | Lint with oxlint             |
 | `pnpm format` | Format with oxfmt            |
 
-[rspack.config.ts](rspack.config.ts) uses `https://api.deepseek.com` by default. Use `createConfig({ apiOrigin, devServer })` to customize the API origin and development server proxy.
+[rspack.config.ts](rspack.config.ts) uses `https://api.deepseek.com` by default. Use `createConfig({ apiProvider, apiBaseUrl, apiModel, devServer })` to customize the chat server and development server proxy (`apiOrigin` is still accepted).
+
+### Local models (Ollama and other compatible servers)
+
+The app can also talk to any server implementing the plain Anthropic Messages API, such as Ollama (0.14 or later serves `/v1/messages`):
+
+```sh
+CHAT_API_PROVIDER=compatible CHAT_API_BASE_URL=http://127.0.0.1:11434/v1 CHAT_API_MODEL=qwen3:14b pnpm dev
+```
+
+The server can also be switched at runtime in **Settings → Data → Chat server**. With a compatible server:
+
+- the API key is optional and sent as `Authorization: Bearer` (Ollama's CORS rules reject `x-api-key`);
+- DeepSeek-only features are hidden and never called: attachments (Files API), web search, link reading, generated titles (the first question names the chat), speech, location;
+- the request is reduced to the standard API: neutral system prompt, `max_tokens`, `thinking` with a budget, the date and reply language in the system prompt instead of `latest_reminder`.
+
+### Security
+
+- A Content Security Policy only lets the page connect to the configured server, the DeepSeek API and servers on this machine; remote images, scripts, frames and forms are blocked, so a rendered answer cannot send data elsewhere. A remote compatible server must be set at build time (`CHAT_API_BASE_URL`) to be allowed.
+- Plain `http` is accepted only for servers on this machine; switching servers clears the stored API key.
+- Links from search results, read pages and imported history open only if they are `http(s)`.
+- History import caps entry sizes (64 MiB per file, 2 GiB in total).
+- The API key stays in `localStorage`, readable by any script on the page's origin: serve the app from its own origin.
 
 Chat uses `deepseek-flash` by default through Anthropic-compatible Messages / Files APIs. Speech features use ASR / TTS endpoints. Requests include extensions for search, link reading, titles, and `latest_reminder`, so the configured service must support the corresponding capabilities. Supported attachment formats are determined by server-side validation.
 

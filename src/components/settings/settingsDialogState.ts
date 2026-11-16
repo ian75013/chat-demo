@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { useSettings } from '../../services/settings.js'
+import { getEndpointFeatures, useSettings } from '../../services/settings.js'
 
 /** 设置弹窗的分组：通用设置 / 数据管理 */
 export type SettingsSection = 'general' | 'data'
@@ -17,7 +17,8 @@ export const closeSettings = () => useSettingsDialog.setState({ open: false })
 
 /** 没有 API Key 时打开设置并选中 API Key 所在的「数据管理」，返回是否已有 Key */
 export const ensureApiKey = () => {
-  if (useSettings.getState().apiKey) {
+  // A local server usually needs no key.
+  if (useSettings.getState().apiKey || !getEndpointFeatures().apiKeyRequired) {
     return true
   }
   openSettings('data')

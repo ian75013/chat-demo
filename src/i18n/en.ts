@@ -178,4 +178,15 @@ export const en = {
   latestReminderLanguage: 'English',
   settingsLocaleZhCN: 'Simplified Chinese',
   settingsLocaleEnUS: 'English',
+  settingsEndpoint: 'Chat server',
+  settingsEndpointDescription:
+    'The DeepSeek API, or a server compatible with Anthropic Messages (such as a local Ollama)',
+  settingsEndpointDeepSeek: 'DeepSeek API',
+  settingsEndpointCompatible: 'Compatible server',
+  settingsEndpointBaseUrl: 'Base URL, e.g. http://127.0.0.1:11434/v1',
+  settingsEndpointModel: 'Model, e.g. qwen3:14b',
+  settingsEndpointSave: 'Save',
+  settingsEndpointSaved: 'Saved. Attachments, search and speech need the DeepSeek API',
+  settingsEndpointInvalid:
+    'Invalid address: use https, or http on this machine; the model cannot be empty',
 } satisfies Record<keyof typeof zh, string>

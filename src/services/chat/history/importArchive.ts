@@ -41,7 +41,25 @@ const imageType = (bytes: Uint8Array): string => {
   return ''
 }
 
+/**
+ * Size caps for an imported archive. Entry sizes come from the ZIP directory and the reader
+ * refuses to inflate past them, so checking them up front stops a small "zip bomb" from
+ * filling memory or IndexedDB.
+ */
+export const IMPORT_LIMITS = {
+  jsonBytes: 64 * 1024 * 1024,
+  imageBytes: 64 * 1024 * 1024,
+  totalBytes: 2 * 1024 * 1024 * 1024,
+} as const
+
+const checkEntrySize = (entry: ArchiveEntry, limit: number) => {
+  if (entry.size > limit) {
+    fail('backupIncomplete')
+  }
+}
+
 const readJson = async (entry: ArchiveEntry): Promise<unknown> => {
+  checkEntrySize(entry, IMPORT_LIMITS.jsonBytes)
   const text = await (await readEntry(entry)).text()
   try {
     return JSON.parse(text)
@@ -95,6 +113,7 @@ export const importArchive = async (file: File): Promise<void> => {
       await skipEntry(entry)
       return
     }
+    checkEntrySize(entry, IMPORT_LIMITS.imageBytes)
     const data = await readEntry(entry)
     const type = imageType(new Uint8Array(await data.slice(0, 16).arrayBuffer()))
     await db.saveStagingFiles([{ id, blob: new Blob([data], { type }) }])
@@ -102,8 +121,13 @@ export const importArchive = async (file: File): Promise<void> => {
   }
 
   try {
+    let total = 0
     for await (const entry of readArchive(file)) {
       const { path } = entry
+      total += entry.size
+      if (total > IMPORT_LIMITS.totalBytes) {
+        fail('backupIncomplete')
+      }
       const sessionId = parseSessionPath(path)
       if (!manifest) {
         if (path !== MANIFEST_PATH) {

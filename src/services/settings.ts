@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { TtsVoice } from './api/speech.js'
 import { normalizeLocation, type UserLocation } from './location.js'
+import { getFeatures, parseEndpoint, type Endpoint, type EndpointFeatures } from './endpoint.js'
 
 export type Locale = 'zh-CN' | 'en-US'
 
@@ -10,6 +11,8 @@ export type ThemePreference = 'light' | 'dark' | 'system'
 /** 本机设置，存 localStorage：API Key、语言、主题、位置、朗读音色、深度思考与智能搜索开关、侧边栏收起状态 */
 type Settings = {
   apiKey: string | null
+  /** Chat server; build-time default unless overridden in Settings */
+  endpoint: Endpoint
   locale: Locale
   themePreference: ThemePreference
   location: UserLocation | null
@@ -21,6 +24,7 @@ type Settings = {
 
 const KEYS = {
   apiKey: 'chat-demo:api-key',
+  endpoint: 'chat-demo:endpoint',
   locale: 'chat-demo:locale',
   location: 'chat-demo:location',
   themePreference: 'chat-demo:theme-preference',
@@ -89,6 +93,7 @@ const initialTtsVoice = (): TtsVoice => (read(KEYS.ttsVoice) === 'tide' ? 'tide'
 
 export const useSettings = create<Settings>(() => ({
   apiKey: read(KEYS.apiKey),
+  endpoint: parseEndpoint(read(KEYS.endpoint)),
   locale: initialLocale(),
   location: initialLocation(),
   themePreference: initialThemePreference(),
@@ -138,3 +143,25 @@ export const setSiderCollapsed = (siderCollapsed: boolean) => {
   write(KEYS.siderCollapsed, String(siderCollapsed))
   useSettings.setState({ siderCollapsed })
 }
+
+/**
+ * Switches the chat server. The API key belongs to the previous server, so it is cleared:
+ * a key must never be sent to a server it was not issued for.
+ */
+export const setEndpoint = (endpoint: Endpoint) => {
+  const previous = useSettings.getState().endpoint
+  write(KEYS.endpoint, JSON.stringify(endpoint))
+  const sameServer =
+    previous.provider === endpoint.provider && previous.baseUrl === endpoint.baseUrl
+  if (!sameServer) {
+    write(KEYS.apiKey, null)
+  }
+  useSettings.setState(sameServer ? { endpoint } : { endpoint, apiKey: null })
+}
+
+export const getEndpointFeatures = (): EndpointFeatures =>
+  getFeatures(useSettings.getState().endpoint)
+
+/** Features of the configured server, for components. */
+export const useEndpointFeatures = (): EndpointFeatures =>
+  getFeatures(useSettings((state) => state.endpoint))

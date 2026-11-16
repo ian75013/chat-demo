@@ -4,7 +4,7 @@ import { ApiError, streamMessage } from '../api/client.js'
 import type { ChatModel, CreateMessageRequest } from '../api/types.js'
 import { extractFileIds, getFileErrorCode, isRetryableApiError } from '../api/errors.js'
 import { cancelUpload, describeUploadError, uploadAttachment, useUploads } from '../attachments.js'
-import { useSettings } from '../settings.js'
+import { getEndpointFeatures, useSettings } from '../settings.js'
 import { appendBranch, getVisibleMessages, normalizeSession, selectVersion } from './branches.js'
 import * as db from './db.js'
 import {
@@ -962,7 +962,13 @@ const waitForRetry = (attempt: number, signal: AbortSignal) =>
 const streamReply = async (sessionId: string, initial: AssistantMessage, request: Request) => {
   const controller = new AbortController()
   if (!getSession(sessionId)?.title) {
-    titleRequests.add(controller)
+    const fallback = request.question.content.trim().replace(/\s+/g, ' ').slice(0, 40)
+    if (getEndpointFeatures().titles) {
+      titleRequests.add(controller)
+    } else if (fallback) {
+      // Standard servers do not generate titles: name the chat after its first question.
+      renameSession(sessionId, fallback)
+    }
   }
   set((state) => ({ streaming: { ...state.streaming, [sessionId]: controller } }))
   let reply = initial

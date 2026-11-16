@@ -169,4 +169,13 @@ export const zh = {
   latestReminderLanguage: '中文',
   settingsLocaleZhCN: '简体中文',
   settingsLocaleEnUS: 'English',
+  settingsEndpoint: '对话服务',
+  settingsEndpointDescription: 'DeepSeek API，或兼容 Anthropic Messages 的服务（如本机 Ollama）',
+  settingsEndpointDeepSeek: 'DeepSeek API',
+  settingsEndpointCompatible: '兼容服务',
+  settingsEndpointBaseUrl: '接口地址，如 http://127.0.0.1:11434/v1',
+  settingsEndpointModel: '模型，如 qwen3:14b',
+  settingsEndpointSave: '保存',
+  settingsEndpointSaved: '已保存。附件、搜索与语音仅 DeepSeek API 可用',
+  settingsEndpointInvalid: '地址无效：须为 https，或本机的 http；模型不能为空',
 } as const

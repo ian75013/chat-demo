@@ -23,7 +23,9 @@ import {
   setLocale,
   setLocation,
   setThemePreference,
+  setEndpoint,
   setTtsVoice,
+  useEndpointFeatures,
   useSettings,
   type ThemePreference,
 } from '../../services/settings.js'
@@ -32,6 +34,12 @@ import { Button } from '../base/Button.js'
 import { Modal } from '../base/Modal.js'
 import { Select } from '../base/Select.js'
 import { showToast } from '../base/toastState.js'
+import {
+  DEEPSEEK_ENDPOINT,
+  DEFAULT_ENDPOINT,
+  normalizeBaseUrl,
+  type ApiProvider,
+} from '../../services/endpoint.js'
 import { ApiKeyConfirm, ApiKeyField, useApiKeyEditor } from './ApiKeyField.js'
 import { closeSettings, useSettingsDialog, type SettingsSection } from './settingsDialogState.js'
 import styles from './Settings.module.css'
@@ -61,6 +69,7 @@ const SettingsContent = () => {
   const [section, setSection] = useState(() => useSettingsDialog.getState().section)
   // 切换分组不丢失正在输入的 API Key 与导入状态
   const apiKeyEditor = useApiKeyEditor()
+  const features = useEndpointFeatures()
   const historyImport = useHistoryImport()
   const historyDelete = useHistoryDelete()
   const replacingHistory = useChatStore((state) => state.importingHistory)
@@ -98,11 +107,12 @@ const SettingsContent = () => {
             <>
               <ThemeSetting />
               <LocaleSetting />
-              <TtsVoiceSetting />
-              <LocationSetting />
+              {features.speech ? <TtsVoiceSetting /> : null}
+              {features.latestReminder ? <LocationSetting /> : null}
             </>
           ) : (
             <>
+              <EndpointSetting />
               <ApiKeyField editor={apiKeyEditor} />
               <ImportHistory historyImport={historyImport} disabled={historyBusy} />
               <ExportHistory disabled={historyBusy} />
@@ -311,6 +321,93 @@ const TtsVoiceSetting = () => {
         />
       }
     />
+  )
+}
+
+/** Chat server: the DeepSeek API, or a standard Anthropic Messages server such as Ollama. */
+const EndpointSetting = () => {
+  const t = useTranslate()
+  const endpoint = useSettings((state) => state.endpoint)
+  const [provider, setProvider] = useState<ApiProvider>(endpoint.provider)
+  const [baseUrl, setBaseUrl] = useState(
+    endpoint.provider === 'compatible' ? endpoint.baseUrl : 'http://127.0.0.1:11434/v1'
+  )
+  const [model, setModel] = useState(endpoint.provider === 'compatible' ? endpoint.model : '')
+  const [status, setStatus] = useState<Status>(null)
+
+  const save = (next: ApiProvider) => {
+    if (next === 'deepseek') {
+      setEndpoint(DEFAULT_ENDPOINT.provider === 'deepseek' ? DEFAULT_ENDPOINT : DEEPSEEK_ENDPOINT)
+      setStatus(null)
+      return
+    }
+    const url = normalizeBaseUrl(baseUrl)
+    if (!url || !model.trim()) {
+      setStatus({ key: 'settingsEndpointInvalid', error: true })
+      return
+    }
+    setEndpoint({ provider: 'compatible', baseUrl: url, model: model.trim() })
+    setStatus({ key: 'settingsEndpointSaved' })
+  }
+
+  return (
+    <>
+      <SettingCell
+        label={t('settingsEndpoint')}
+        description={t('settingsEndpointDescription')}
+        status={status}
+        action={
+          <Select
+            ariaLabel={t('settingsEndpoint')}
+            value={provider}
+            options={[
+              { value: 'deepseek', label: t('settingsEndpointDeepSeek') },
+              { value: 'compatible', label: t('settingsEndpointCompatible') },
+            ]}
+            onChange={(value) => {
+              setProvider(value)
+              if (value === 'deepseek') {
+                save(value)
+              }
+            }}
+          />
+        }
+      />
+      {provider === 'compatible' ? (
+        <div className={clsx(styles.cell, styles.row)}>
+          <div className={styles.apiKeyInput}>
+            <input
+              type="url"
+              aria-label={t('settingsEndpointBaseUrl')}
+              placeholder={t('settingsEndpointBaseUrl')}
+              autoComplete="off"
+              spellCheck={false}
+              value={baseUrl}
+              onChange={(event) => setBaseUrl(event.target.value)}
+            />
+          </div>
+          <div className={styles.apiKeyInput}>
+            <input
+              type="text"
+              aria-label={t('settingsEndpointModel')}
+              placeholder={t('settingsEndpointModel')}
+              autoComplete="off"
+              spellCheck={false}
+              value={model}
+              onChange={(event) => setModel(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                  save('compatible')
+                }
+              }}
+            />
+          </div>
+          <Button variant="outlined" size="m" onClick={() => save('compatible')}>
+            {t('settingsEndpointSave')}
+          </Button>
+        </div>
+      ) : null}
+    </>
   )
 }
 

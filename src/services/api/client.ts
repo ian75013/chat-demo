@@ -1,4 +1,7 @@
 import { translate, type TranslationMessage } from '../../i18n/index.js'
+import { apiOrigin, type Endpoint } from '../endpoint.js'
+import { useSettings } from '../settings.js'
+import { toCompatibleRequest } from './compatible.js'
 import { readMessageEvent } from './parseEvent.js'
 import { readServerSentEvents } from './sse.js'
 import type {
@@ -9,10 +12,10 @@ import type {
   MessageStreamEvent,
 } from './types.js'
 
-/** 构建期 API 地址，默认 https://api.deepseek.com；本地开发支持开发服务器代理 */
-export const API_ORIGIN = __API_ORIGIN__
-/** Anthropic 兼容接口的前缀 */
-const ANTHROPIC_BASE_URL = `${API_ORIGIN}/anthropic/v1`
+/** The configured chat server (Settings, or the build-time default) */
+const endpoint = (): Endpoint => useSettings.getState().endpoint
+/** Origin of the DeepSeek API, for /models and the speech tools */
+export const getApiOrigin = (): string => apiOrigin(endpoint())
 /** 引用 Files API 上传的图片、调用 Anthropic 兼容 Files API 时必须携带 */
 const FILES_BETA = 'files-api-2025-04-14'
 
@@ -82,16 +85,30 @@ export const request = async (url: string, init: RequestInit): Promise<Response>
   return response
 }
 
-const anthropicHeaders = (apiKey: string, beta: boolean): Record<string, string> => ({
-  // DeepSeek 兼容接口的鉴权方式，也可使用 Authorization: Bearer。
-  'x-api-key': apiKey,
-  // Files API 和通过 file_id 引用图片时必传；纯文本聊天无需携带。
-  ...(beta ? { 'anthropic-beta': FILES_BETA } : {}),
-})
+const anthropicHeaders = (apiKey: string, beta: boolean): Record<string, string> => {
+  if (endpoint().provider === 'compatible') {
+    // Local servers (Ollama) allow Authorization in CORS but not x-api-key; the key is optional.
+    return apiKey ? { Authorization: `Bearer ${apiKey}` } : {}
+  }
+  return {
+    // DeepSeek 兼容接口的鉴权方式，也可使用 Authorization: Bearer。
+    'x-api-key': apiKey,
+    // Files API 和通过 file_id 引用图片时必传；纯文本聊天无需携带。
+    ...(beta ? { 'anthropic-beta': FILES_BETA } : {}),
+  }
+}
+
+/** Files API and speech exist only on DeepSeek; never send them to another server. */
+const requireDeepSeek = () => {
+  if (endpoint().provider !== 'deepseek') {
+    throw new ApiError('protocol', 'This feature needs the DeepSeek API.')
+  }
+}
 
 /** 用 GET /models 校验 API Key（不产生费用） */
 export const verifyApiKey = async (apiKey: string, signal?: AbortSignal): Promise<void> => {
-  await request(`${API_ORIGIN}/models`, {
+  const { provider, baseUrl } = endpoint()
+  await request(provider === 'deepseek' ? `${getApiOrigin()}/models` : `${baseUrl}/models`, {
     method: 'GET',
     headers: { Authorization: `Bearer ${apiKey}` },
     signal,
@@ -108,12 +125,13 @@ export const uploadFile = async (
   purpose: FilePurpose | null,
   signal?: AbortSignal
 ): Promise<FileObject> => {
+  requireDeepSeek()
   const form = new FormData()
   if (purpose) {
     form.append('purpose', purpose)
   }
   form.append('file', file)
-  const response = await request(`${ANTHROPIC_BASE_URL}/files`, {
+  const response = await request(`${endpoint().baseUrl}/files`, {
     method: 'POST',
     headers: anthropicHeaders(apiKey, true),
     body: form,
@@ -124,7 +142,8 @@ export const uploadFile = async (
 
 /** DELETE /anthropic/v1/files/{file_id} */
 export const deleteFile = async (apiKey: string, fileId: string): Promise<void> => {
-  await request(`${ANTHROPIC_BASE_URL}/files/${encodeURIComponent(fileId)}`, {
+  requireDeepSeek()
+  await request(`${endpoint().baseUrl}/files/${encodeURIComponent(fileId)}`, {
     method: 'DELETE',
     headers: anthropicHeaders(apiKey, true),
   })
@@ -146,14 +165,16 @@ export async function* streamMessage(
   body: CreateMessageRequest,
   signal: AbortSignal
 ): AsyncGenerator<MessageStreamEvent> {
-  const response = await request(`${ANTHROPIC_BASE_URL}/messages`, {
+  const target = endpoint()
+  const payload = target.provider === 'compatible' ? toCompatibleRequest(body, target.model) : body
+  const response = await request(`${target.baseUrl}/messages`, {
     method: 'POST',
     headers: {
-      ...anthropicHeaders(apiKey, hasFile(body)),
+      ...anthropicHeaders(apiKey, target.provider === 'deepseek' && hasFile(body)),
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
     },
-    body: JSON.stringify({ ...body, stream: true }),
+    body: JSON.stringify({ ...payload, stream: true }),
     signal,
   })
   const contentType = response.headers.get('Content-Type') ?? ''

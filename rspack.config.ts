@@ -17,15 +17,64 @@ const cssLoader = {
 }
 
 type ConfigOptions = {
-  /** 公开 API 的地址，注入为 __API_ORIGIN__ */
+  /** `deepseek` (default) or `compatible` for a plain Anthropic Messages server such as Ollama */
+  apiProvider?: 'deepseek' | 'compatible'
+  /** Messages API base URL; defaults to the DeepSeek API, or Ollama for `compatible` */
+  apiBaseUrl?: string
+  /** Default model */
+  apiModel?: string
+  /**
+   * @deprecated Use apiBaseUrl. Origin of the DeepSeek API; `/anthropic/v1` is appended.
+   */
   apiOrigin?: string
   /** 开发服务器配置，支持本地接口代理 */
   devServer?: Configuration['devServer']
 }
 
+const LOOPBACK_SOURCES = ['http://127.0.0.1:*', 'http://localhost:*', 'http://[::1]:*']
+
+/**
+ * Content Security Policy: the page may only talk to the configured server, the DeepSeek API
+ * (selectable in Settings) and servers on this machine. Nothing else can be fetched, loaded or
+ * embedded, so a rendered answer cannot exfiltrate data (no remote images, scripts or frames).
+ */
+const contentSecurityPolicy = (apiBaseUrl: string) => {
+  const connect = new Set(["'self'", new URL(apiBaseUrl).origin, 'https://api.deepseek.com'])
+  LOOPBACK_SOURCES.forEach((source) => connect.add(source))
+  if (dev) {
+    // Hot reload of the development server
+    connect.add('ws://localhost:*')
+    connect.add('ws://127.0.0.1:*')
+  }
+  return [
+    "default-src 'self'",
+    "script-src 'self'",
+    // KaTeX, Mermaid and React set inline styles
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "media-src 'self' blob:",
+    "worker-src 'self' blob:",
+    `connect-src ${[...connect].join(' ')}`,
+    "object-src 'none'",
+    "frame-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+  ].join('; ')
+}
+
 /** 创建构建配置，支持自定义 API 地址和开发服务器选项 */
 export const createConfig = ({
-  apiOrigin = 'https://api.deepseek.com',
+  apiProvider = process.env.CHAT_API_PROVIDER === 'compatible' ? 'compatible' : 'deepseek',
+  apiOrigin,
+  apiBaseUrl = process.env.CHAT_API_BASE_URL ||
+    (apiOrigin
+      ? `${apiOrigin.replace(/\/+$/, '')}/anthropic/v1`
+      : apiProvider === 'compatible'
+        ? 'http://127.0.0.1:11434/v1'
+        : 'https://api.deepseek.com/anthropic/v1'),
+  apiModel = process.env.CHAT_API_MODEL ||
+    (apiProvider === 'compatible' ? 'qwen3:14b' : 'deepseek-flash'),
   devServer,
 }: ConfigOptions = {}): Configuration => ({
   mode: dev ? 'development' : 'production',
@@ -78,9 +127,21 @@ export const createConfig = ({
     new rspack.HtmlRspackPlugin({
       template: './src/index.html',
       scriptLoading: 'defer',
-      meta: { 'application-version': version },
+      meta: {
+        'application-version': version,
+        // Requests and opened links never reveal the page address.
+        referrer: 'no-referrer',
+        'content-security-policy': {
+          'http-equiv': 'Content-Security-Policy',
+          content: contentSecurityPolicy(apiBaseUrl),
+        },
+      },
     }),
-    new rspack.DefinePlugin({ __API_ORIGIN__: JSON.stringify(apiOrigin) }),
+    new rspack.DefinePlugin({
+      __API_PROVIDER__: JSON.stringify(apiProvider),
+      __API_BASE_URL__: JSON.stringify(apiBaseUrl),
+      __API_MODEL__: JSON.stringify(apiModel),
+    }),
     new rspack.CopyRspackPlugin({
       patterns: [{ from: path.resolve(root, 'LICENSE'), to: 'LICENSE', toType: 'file' }],
     }),
